@@ -6,11 +6,19 @@ using TMPro;
 using MathNet.Numerics.LinearAlgebra.Single;
 using MathNet.Numerics.Providers.LinearAlgebra;
 
+using System.IO;
+
 
 namespace InverseKinematics
 {
     public class JointController : MonoBehaviour
     {
+
+        private const string CsvPath = "Assets/Resources/WeldPoint.csv";
+        TextAsset csvFile; // CSVファイル
+        List<string[]> csvDatas = new List<string[]>(); // CSVの中身を入れるリスト;
+        
+
         //robot
         private GameObject[] joint = new GameObject[6];
         private float[] angle = new float[6];
@@ -32,9 +40,14 @@ namespace InverseKinematics
         //WeldPointの座標取得用
         private GameObject targetObject;
 
-        //リーチ可否の判定結果記述用
-        private GameObject ReachResult; //= GameObject.Find("ReachResult");
+        //WeldPointのID識別用
+        private int WeldPoint_ID = 0;
 
+        //WeldPointのリストカウント用
+        private GameObject[] WeldPointCount;
+
+        //リーチ可否の判定結果記述用
+        private GameObject ReachResult;
 
         //UI
         private GameObject[] slider = new GameObject[6];
@@ -46,13 +59,17 @@ namespace InverseKinematics
         private float[] minAngle = new float[6];
         private float[] maxAngle = new float[6];
 
-        //WeldPosition1のInpufield用
-        private GameObject[] P1_posText = new GameObject[3];
-        private GameObject[] P1_angText = new GameObject[3];
+        //WeldPointのInpufield用
+        private TMP_InputField WeldPointInput_pos_x;
+        private TMP_InputField WeldPointInput_pos_y;
+        private TMP_InputField WeldPointInput_pos_z;
+        private TMP_InputField WeldPointInput_ang_x;
+        private TMP_InputField WeldPointInput_ang_y;
+        private TMP_InputField WeldPointInput_ang_z;
 
-        //InputField型の変数を宣言対象のInputFieldのオブジェクトをアタッチする
-        [SerializeField] private InputField P1_InputField;
-        //Vector3 WeldPointPosition = gameObject.transform.position;
+        // Updata関数内のフラグ用
+        bool isCalledOnce = false;
+
 
         void CalcIK()
         {
@@ -86,15 +103,14 @@ namespace InverseKinematics
             }
             if (count == 99 || outOfLimit) // 収束せず or 角度オーバー
             {
+
                 for (int i = 0; i < joint.Length; i++)
                 {
                     slider[i].GetComponent<Slider>().value = prevSliderVal[i];
                     angle[i] = prevAngle[i];
-
-                    //到達不可能な場合はデバッグでエラーを表示する
-                    ReachResult.GetComponent<TextMeshProUGUI>().text = "NG";
-                    //Debug.Log("ERROR");
                 }
+                //到達不可能である結果を表示する
+                ReachResult.GetComponent<TextMeshProUGUI>().text = "NG";
             }
             else      // ロボットの関節角度を更新
             {
@@ -112,8 +128,8 @@ namespace InverseKinematics
         }
         void ForwardKinematics()
         {
-            point[0] = new Vector3(0f,0f,0f); 
-            wRotation[0] = Quaternion.AngleAxis(angle[0],axis[0]);
+            point[0] = new Vector3(0f, 0f, 0f);
+            wRotation[0] = Quaternion.AngleAxis(angle[0], axis[0]);
             for (int i = 1; i < joint.Length; i++)
             {
                 point[i] = wRotation[i - 1] * dim[i - 1] + point[i - 1];
@@ -124,17 +140,17 @@ namespace InverseKinematics
         }
 
         DenseMatrix CalcErr()
-        { 
+        {
             // 位置誤差
             Vector3 perr = pos - point[6];
             // 姿勢誤差
             Quaternion rerr = Quaternion.Euler(rot) * Quaternion.Inverse(wRotation[5]);
             // xyz周りの回転に変換
-            Vector3 rerrVal = new Vector3(rerr.eulerAngles.x,rerr.eulerAngles.y,rerr.eulerAngles.z);
+            Vector3 rerrVal = new Vector3(rerr.eulerAngles.x, rerr.eulerAngles.y, rerr.eulerAngles.z);
             if (rerrVal.x > 180f) rerrVal.x -= 360f;
             if (rerrVal.y > 180f) rerrVal.y -= 360f;
             if (rerrVal.z > 180f) rerrVal.z -= 360f;
-            var err = DenseMatrix.OfArray( new float[,] 
+            var err = DenseMatrix.OfArray(new float[,]
             {
                 { perr.x },
                 { perr.y },
@@ -172,38 +188,99 @@ namespace InverseKinematics
             return J;
         }
 
+        //InputField内の数値を初期化
+        public void ClickResetButton()
+        {
+            //WeldPointInput_pos_x = GameObject.Find("Input_X").GetComponent<TMP_InputField>();
+            WeldPointInput_pos_x.GetComponent<TMP_InputField>().text = csvDatas[1][2].ToString();
+            //WeldPointInput_pos_y = GameObject.Find("Input_Y").GetComponent<TMP_InputField>();
+            WeldPointInput_pos_y.GetComponent<TMP_InputField>().text = csvDatas[1][3].ToString();
+            //WeldPointInput_pos_z = GameObject.Find("Input_Z").GetComponent<TMP_InputField>();
+            WeldPointInput_pos_z.GetComponent<TMP_InputField>().text = csvDatas[1][4].ToString();
+            //WeldPointInput_ang_x = GameObject.Find("Input_RX").GetComponent<TMP_InputField>();
+            WeldPointInput_ang_x.GetComponent<TMP_InputField>().text = csvDatas[1][5].ToString();
+            //WeldPointInput_ang_y = GameObject.Find("Input_RY").GetComponent<TMP_InputField>();
+            WeldPointInput_ang_y.GetComponent<TMP_InputField>().text = csvDatas[1][6].ToString();
+            //WeldPointInput_ang_z = GameObject.Find("Input_RZ").GetComponent<TMP_InputField>();
+            WeldPointInput_ang_z.GetComponent<TMP_InputField>().text = csvDatas[1][7].ToString();
+        }
+
+        public void ClickRegistButton()
+        {
+            Debug.Log("Button click!");
+        }
+
+
+
         // Start is called before the first frame update
         void Start()
         {
+            
+            // csvファイル(DB)の読み込み
+            csvFile = Resources.Load("WeldPoint") as TextAsset; // Resouces下のCSV読み込み
+            StringReader reader = new StringReader(csvFile.text);
+            // , で分割しつつ一行ずつ読み込み
+            // リストに追加していく
+            while (reader.Peek() != -1) // reader.Peaekが-1になるまで
+            {
+                string line = reader.ReadLine(); // 一行ずつ読み込み
+                csvDatas.Add(line.Split(',')); // , 区切りでリストに追加
+            }
+
+            // csvDatas[行][列]を指定して値を自由に取り出せる
+            for (var x = 0; x < csvDatas.Count; x++)
+            {
+                for (var y = 0; y < csvDatas[x].Length; y++)
+                {
+                    Debug.Log(csvDatas[x][y]);
+                }
+            }
+
+            //InputFieldへcsvの内容を入力する
+            WeldPointInput_pos_x = GameObject.Find("Input_X").GetComponent<TMP_InputField>();
+            WeldPointInput_pos_x.GetComponent<TMP_InputField>().text = csvDatas[1][2].ToString();
+            WeldPointInput_pos_y = GameObject.Find("Input_Y").GetComponent<TMP_InputField>();
+            WeldPointInput_pos_y.GetComponent<TMP_InputField>().text = csvDatas[1][3].ToString();
+            WeldPointInput_pos_z = GameObject.Find("Input_Z").GetComponent<TMP_InputField>();
+            WeldPointInput_pos_z.GetComponent<TMP_InputField>().text = csvDatas[1][4].ToString();
+            WeldPointInput_ang_x = GameObject.Find("Input_RX").GetComponent<TMP_InputField>();
+            WeldPointInput_ang_x.GetComponent<TMP_InputField>().text = csvDatas[1][5].ToString();
+            WeldPointInput_ang_y = GameObject.Find("Input_RY").GetComponent<TMP_InputField>();
+            WeldPointInput_ang_y.GetComponent<TMP_InputField>().text = csvDatas[1][6].ToString();
+            WeldPointInput_ang_z = GameObject.Find("Input_RZ").GetComponent<TMP_InputField>();
+            WeldPointInput_ang_z.GetComponent<TMP_InputField>().text = csvDatas[1][7].ToString();
+
+
             //robot
-            for(int i=0;i<joint.Length;i++)
+            for (int i = 0; i < joint.Length; i++)
             {
                 joint[i] = GameObject.Find("Joint_" + i.ToString());
             }
 
             //UI settings
-            for(int i = 0; i < joint.Length; i++)
+            for (int i = 0; i < joint.Length; i++)
             {
                 slider[i] = GameObject.Find("Slider_" + i.ToString());
                 sliderVal[i] = slider[i].GetComponent<Slider>().value;
-                posText[i] = GameObject.Find("Ref_"+i.ToString());
+                posText[i] = GameObject.Find("Ref_" + i.ToString());
                 angText[i] = GameObject.Find("Ang_" + i.ToString());
             }
+
             // イニシャル姿勢での各アームの寸法
-            dim[0] = new Vector3( 0f,2f,0f);
-            dim[1] = new Vector3( 4f,0f,0f);
-            dim[2] = new Vector3( 1f,0f,0f);
-            dim[3] = new Vector3( 2f,0f,0f);
-            dim[4] = new Vector3( 1f,0f,0f);
-            dim[5] = new Vector3( 2f,0f,0f);
+            dim[0] = new Vector3(0f, 2f, 0f);
+            dim[1] = new Vector3(4f, 0f, 0f);
+            dim[2] = new Vector3(1f, 0f, 0f);
+            dim[3] = new Vector3(2f, 0f, 0f);
+            dim[4] = new Vector3(1f, 0f, 0f);
+            dim[5] = new Vector3(2f, 0f, 0f);
 
             // 各回転軸の方向
-            axis[0] = new Vector3( 0f,1f,0f);
-            axis[1] = new Vector3( 0f,0f,1f);
-            axis[2] = new Vector3( 0f,0f,1f);
-            axis[3] = new Vector3( 1f,0f,0f);
-            axis[4] = new Vector3( 0f,0f,1f);
-            axis[5] = new Vector3( 1f,0f,0f);
+            axis[0] = new Vector3(0f, 1f, 0f);
+            axis[1] = new Vector3(0f, 0f, 1f);
+            axis[2] = new Vector3(0f, 0f, 1f);
+            axis[3] = new Vector3(1f, 0f, 0f);
+            axis[4] = new Vector3(0f, 0f, 1f);
+            axis[5] = new Vector3(1f, 0f, 0f);
 
             // イニシャル姿勢での回転角
             angle[0] = 0f;
@@ -217,81 +294,132 @@ namespace InverseKinematics
                 minAngle[i] = -150f;
                 maxAngle[i] = 150f;
             }
-            // オブジェクトを検索
-            targetObject = GameObject.Find("WeldPoint_0");
 
-            //リーチ到達不可の結果用オブジェクトの検索
-            ReachResult = GameObject.Find("P1_ReachResult");
+            //初回計算
+            for (WeldPoint_ID = 0; WeldPoint_ID < 3; WeldPoint_ID++)
+            {
+                // WeldPointのオブジェクトを検索
+                targetObject = GameObject.Find("WeldPoint_" + WeldPoint_ID);
 
-            //WeldPointの座標をinputFieldにインプット
-            P1_posText[0] = GameObject.Find("P1_Input_Px");
-           // P1_InputField.text= InputField("P1_InputPx");
-        //private GameObject[] P1_angText = new GameObject[3];
+                //リーチ到達不可の結果用オブジェクトの検索
+                ReachResult = GameObject.Find("P" + WeldPoint_ID + "_ReachResult");
 
-        // オブジェクトのワールド座標を取得
-            Vector3 worldPosition1 = targetObject.transform.position;
-            Vector3 worldPosition2 = targetObject.transform.localEulerAngles;
+                //WeldPointの座標をinputFieldにインプット
+              //  P1_posText[0] = GameObject.Find("P1_Input_Px");
 
-            // ワールド座標を表示
-            //Debug.Log(worldPosition1);
-            //Debug.Log(worldPosition2);
+                //オブジェクトのワールド座標を取得
+                Vector3 worldPosition1 = targetObject.transform.position;
+                Vector3 worldPosition2 = targetObject.transform.localEulerAngles;
 
-            sliderVal[0] = worldPosition1.x;
-            sliderVal[1] = worldPosition1.y;
-            sliderVal[2] = worldPosition1.z;
-            sliderVal[3] = worldPosition2.x;
-            sliderVal[4] = worldPosition2.y;
-            sliderVal[5] = worldPosition2.z;
+                //各スライダーの値をオブジェクトの座標に変更
+                sliderVal[0] = worldPosition1.x;
+                sliderVal[1] = worldPosition1.y;
+                sliderVal[2] = worldPosition1.z;
+                sliderVal[3] = worldPosition2.x;
+                sliderVal[4] = worldPosition2.y;
+                sliderVal[5] = worldPosition2.z;
 
-            slider[0].GetComponent<Slider>().value = worldPosition1.x;
-            slider[1].GetComponent<Slider>().value = worldPosition1.y;
-            slider[2].GetComponent<Slider>().value = worldPosition1.z;
-            slider[3].GetComponent<Slider>().value = worldPosition2.x;
-            slider[4].GetComponent<Slider>().value = worldPosition2.y;
-            slider[5].GetComponent<Slider>().value = worldPosition2.z;
+                slider[0].GetComponent<Slider>().value = worldPosition1.x;
+                slider[1].GetComponent<Slider>().value = worldPosition1.y;
+                slider[2].GetComponent<Slider>().value = worldPosition1.z;
+                slider[3].GetComponent<Slider>().value = worldPosition2.x;
+                slider[4].GetComponent<Slider>().value = worldPosition2.y;
+                slider[5].GetComponent<Slider>().value = worldPosition2.z;
 
-            /*Input fieldにPxの値を代入*/
-            //  InputPx = slider[0].ToStrings();
-            //   ReachResult.GetComponent<TextMeshProUGUI>().text = "NG";
-            //  private GameObject[] P1_posText = new GameObject[3];
-            //private GameObject[] P1_angText = new GameObject[3];
+                for (int i = 0; i < joint.Length; i++)
+                {
+                    sliderVal[i] = slider[i].GetComponent<Slider>().value;
+                }
+
+                //スライダーの値をオブジェクトの座標に入力
+              //  targetObject.transform.position = new Vector3(sliderVal[0], sliderVal[1], sliderVal[2]);
+                //targetObject.transform.localEulerAngles = new Vector3(sliderVal[3], sliderVal[4], sliderVal[5]);
+
+                //計算用関数にスライダーの値を代入
+                pos.x = sliderVal[0];
+                pos.y = sliderVal[1];
+                pos.z = sliderVal[2];
+                rot.x = sliderVal[3];
+                rot.y = sliderVal[4];
+                rot.z = sliderVal[5];
+
+                // IK
+                CalcIK();
+
+                //到達NGの場合に利用する直前の各種値を初期化
+                for (int i = 0; i < joint.Length; i++)
+                {
+                    prevSliderVal[i]=0;
+                    prevAngle[i] =0;
+                }
+                // イニシャル姿勢での回転角
+                angle[0] = 0f;
+                angle[1] = 90f;
+                angle[2] = -90f;
+                angle[3] = 0f;
+                angle[4] = 0f;
+                angle[5] = 0f;
+            }
 
         }
+    
 
         // Update is called once per frame
         void Update()
         {
-            for (int i = 0; i < joint.Length; i++)
-            {
-                sliderVal[i] = slider[i].GetComponent<Slider>().value;
-            }
-            // オブジェクトのワールド座標を取得
-         /*   Vector3 worldPosition1 = targetObject.transform.position.x;
-            Vector3 worldPosition2 = targetObject.transform.localEulerAngles;
-            sliderVal[0] = worldPosition1.x;
-            sliderVal[1] = worldPosition1.y;
-            sliderVal[2] = worldPosition1.z;
-            sliderVal[3] = worldPosition2.x;
-            sliderVal[4] = worldPosition2.y;
-            sliderVal[5] = worldPosition2.z;*/
-          
-            pos.x = targetObject.transform.position.x;
-            pos.y = targetObject.transform.position.y;
-            pos.z = targetObject.transform.position.z;
-            rot.x = targetObject.transform.localEulerAngles.x;
-            rot.y = targetObject.transform.localEulerAngles.y;
-            rot.z = targetObject.transform.localEulerAngles.z;
-            /*
-            pos.x = sliderVal[0];
-            pos.y = sliderVal[1];
-            pos.z = sliderVal[2];
-            rot.x = sliderVal[3];
-            rot.y = sliderVal[4];
-            rot.z = sliderVal[5];
-            */
+            
+             
+            WeldPoint_ID = 0;
+            // WeldPointのオブジェクトを検索
+            targetObject = GameObject.Find("WeldPoint_" + WeldPoint_ID);
+            //リーチ到達不可の結果用オブジェクトの検索
+            ReachResult = GameObject.Find("P" + WeldPoint_ID + "_ReachResult");
 
-            // IK
-            CalcIK();
+            //オブジェクトのワールド座標を取得
+            Vector3 worldPosition1 = targetObject.transform.position;
+            Vector3 worldPosition2 = targetObject.transform.localEulerAngles;
+
+            // Updataの最初の一回だけオブジェクトの位置
+            if (isCalledOnce==false)
+            {
+            //各スライダーの値をオブジェクトの座標に変更
+                sliderVal[0] = worldPosition1.x;
+                sliderVal[1] = worldPosition1.y;
+                sliderVal[2] = worldPosition1.z;
+                sliderVal[3] = worldPosition2.x;
+                sliderVal[4] = worldPosition2.y;
+                sliderVal[5] = worldPosition2.z;
+
+                slider[0].GetComponent<Slider>().value = worldPosition1.x;
+                slider[1].GetComponent<Slider>().value = worldPosition1.y;
+                slider[2].GetComponent<Slider>().value = worldPosition1.z;
+                slider[3].GetComponent<Slider>().value = worldPosition2.x;
+                slider[4].GetComponent<Slider>().value = worldPosition2.y;
+                slider[5].GetComponent<Slider>().value = worldPosition2.z;
+            }
+
+            for (int i = 0; i < joint.Length; i++)
+                {
+                    sliderVal[i] = slider[i].GetComponent<Slider>().value;
+                }     
+
+                //スライダーの値をオブジェクトの座標に入力
+                targetObject.transform.position = new Vector3(sliderVal[0], sliderVal[1], sliderVal[2]);
+                targetObject.transform.localEulerAngles = new Vector3(sliderVal[3], sliderVal[4], sliderVal[5]);
+
+                //計算用関数にスライダーの値を代入
+                pos.x = sliderVal[0];
+                pos.y = sliderVal[1];
+                pos.z = sliderVal[2];
+                rot.x = sliderVal[3];
+                rot.y = sliderVal[4];
+                rot.z = sliderVal[5];
+
+                // IK
+                CalcIK();
+            isCalledOnce = true;
+
+
         }
     }
 }

@@ -1,0 +1,18 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c78c49d6cf20a6c46a424a4a56e87dfd, type: 3}
+  m_Name: Weld Point Data Base
+  m_EditorClassIdentifier: 
+  WeldPointBaseList:
+  - {fileID: 11400000, guid: 4b1fec1830ae4c649b620a267561e830, type: 2}
+  - {fileID: 11400000, guid: 9c22a153e8f9f7e4790c269ad5df60ca, type: 2}
+  - {fileID: 11400000, guid: b93e15e32aa66a44f92e026125600591, type: 2}
